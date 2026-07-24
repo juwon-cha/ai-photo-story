@@ -2,10 +2,11 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { TONE_LABELS, type StoryTone } from "@/lib/types";
 
 /**
- * 무료 티어에서 동작하는 비전+텍스트 모델.
- * 필요 시 "gemini-1.5-flash" 로 교체 가능.
+ * 사용할 비전+텍스트 모델.
+ * 무료 티어에서 gemini-2.0-flash 는 429(quota)가 자주 나므로 기본값을 2.5-flash 로 둔다.
+ * 환경변수 GEMINI_MODEL 로 코드 수정 없이 교체 가능 (예: gemini-1.5-flash).
  */
-const MODEL_ID = "gemini-2.0-flash";
+const MODEL_ID = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
 
 function getModel() {
   const key = process.env.GEMINI_API_KEY;
@@ -82,8 +83,10 @@ export async function generateStory(
     text = result.response.text();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // 진짜 원인 파악용: 서버 로그(로컬 터미널 / Vercel Logs)에 원본 오류를 남긴다.
+    console.error(`[Gemini] 모델=${MODEL_ID} 원본 오류:`, msg);
     // 무료 티어 한도 초과 시 429/quota 관련 메시지가 온다.
-    if (/429|quota|rate/i.test(msg)) {
+    if (/429|quota|rate limit|resource_exhausted/i.test(msg)) {
       throw new RateLimitError();
     }
     throw new Error(`AI 생성에 실패했습니다: ${msg}`);

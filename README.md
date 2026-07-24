@@ -121,7 +121,8 @@ npm run dev
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 프로젝트 URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon public key |
 | `GEMINI_API_KEY` | Google AI Studio 에서 발급한 키 (**서버 전용**) |
-| `NEXT_PUBLIC_SITE_URL` | 배포 도메인 (공유 링크 기준, 로컬은 `http://localhost:3000`) |
+| `GEMINI_MODEL` | (선택) 사용할 Gemini 모델. 비우면 `gemini-2.5-flash` |
+| `NEXT_PUBLIC_SITE_URL` | 소셜 공유 미리보기(OG) 기준 주소. 로컬은 `http://localhost:3000`, 배포 시 **Vercel 환경변수**에 실제 도메인 |
 
 ---
 
