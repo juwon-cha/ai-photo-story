@@ -32,6 +32,8 @@ export interface GenerateResult {
   title: string;
   captions: string[];
   narrative: string;
+  /** 공개 갤러리에 부적절한 콘텐츠로 판단되면 true */
+  flagged: boolean;
 }
 
 /** 사용자가 사용한도(rate limit)를 초과했는지 판별하기 위한 커스텀 에러 */
@@ -52,12 +54,14 @@ function buildPrompt(count: number, tone: StoryTone): string {
 2. 사진 전체를 하나로 엮는 4~6문장의 이야기(narrative)를 만드세요.
 3. 이야기에 어울리는 짧고 감성적인 제목(title)을 지으세요.
 4. 모든 텍스트는 자연스러운 한국어로 작성합니다.
+5. 사진에 선정적·폭력적·혐오·불법적 요소 등 공개 갤러리에 부적절한 내용이 있으면 flagged를 true, 아니면 false 로 표시하세요.
 
 반드시 아래 JSON 형식으로만 응답하세요(설명·마크다운 금지):
 {
   "title": "제목",
   "captions": ["1번 캡션", "2번 캡션", ...],
-  "narrative": "전체 이야기"
+  "narrative": "전체 이야기",
+  "flagged": false
 }`;
 }
 
@@ -115,5 +119,6 @@ export async function generateStory(
     title: parsed.title?.trim() || "제목 없는 이야기",
     captions: normalizedCaptions,
     narrative: parsed.narrative?.trim() || "",
+    flagged: parsed.flagged === true,
   };
 }

@@ -30,6 +30,9 @@ create table if not exists public.stories (
 create index if not exists stories_user_id_idx on public.stories(user_id);
 create index if not exists stories_public_idx on public.stories(is_public, created_at desc);
 
+-- 부적절 콘텐츠 플래그 (공개/갤러리에서 제외). 기존 테이블에도 안전하게 추가.
+alter table public.stories add column if not exists is_flagged boolean not null default false;
+
 -- 스토리에 속한 사진들
 create table if not exists public.story_photos (
   id uuid primary key default gen_random_uuid(),
@@ -39,6 +42,15 @@ create table if not exists public.story_photos (
   order_index integer not null default 0
 );
 create index if not exists story_photos_story_id_idx on public.story_photos(story_id);
+
+-- 생성 요청 로그 (rate limit 용)
+create table if not exists public.generation_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists generation_events_user_time_idx
+  on public.generation_events(user_id, created_at desc);
 
 -- ────────────────────────────────
 -- 2) RLS (Row Level Security)
@@ -98,6 +110,15 @@ create policy "story_photos_delete_own" on public.story_photos
     )
   );
 
+-- generation_events: 본인 것만 기록/조회 (rate limit)
+alter table public.generation_events enable row level security;
+drop policy if exists "gen_events_insert_own" on public.generation_events;
+create policy "gen_events_insert_own" on public.generation_events
+  for insert with check (auth.uid() = user_id);
+drop policy if exists "gen_events_select_own" on public.generation_events;
+create policy "gen_events_select_own" on public.generation_events
+  for select using (auth.uid() = user_id);
+
 -- ────────────────────────────────
 -- 3) 신규 가입 시 프로필 자동 생성
 -- ────────────────────────────────
@@ -138,22 +159,46 @@ $$;
 grant execute on function public.increment_story_view(uuid) to anon, authenticated;
 
 -- ────────────────────────────────
--- 5) Storage: photos 버킷 (공개 읽기 / 인증 사용자 본인 폴더에만 업로드)
+-- 5) Storage: photos 버킷 (비공개 · 서명 URL 로만 접근)
 -- ────────────────────────────────
--- 파일당 10MB 제한 + 이미지 형식만 허용 (보안·비용)
+-- 비공개(public=false) 버킷 + 파일당 10MB + 이미지 형식만 허용 (보안·비용)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
-  'photos', 'photos', true,
+  'photos', 'photos', false,
   10485760,  -- 10 MB
   array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 )
 on conflict (id) do update
-  set file_size_limit = excluded.file_size_limit,
+  set public = false,
+      file_size_limit = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
 
+-- 이 사진을 읽을 수 있는가? 본인 소유(폴더=uid) 또는 '공개+미플래그 스토리'에 속한 사진.
+-- SECURITY DEFINER 로 내부 조회는 RLS 를 우회 → 스토리지 정책에서 안전하게 재사용.
+create or replace function public.can_read_photo(object_name text)
+returns boolean
+language sql
+security definer set search_path = public
+stable
+as $$
+  select
+    split_part(object_name, '/', 1) = coalesce((select auth.uid())::text, '')
+    or exists (
+      select 1
+      from public.story_photos sp
+      join public.stories s on s.id = sp.story_id
+      where sp.image_url = object_name
+        and s.is_public
+        and not s.is_flagged
+    );
+$$;
+grant execute on function public.can_read_photo(text) to anon, authenticated;
+
+-- 읽기: 위 함수 통과 시에만 (서명 URL 발급도 이 정책을 통과해야 함)
 drop policy if exists "photos_public_read" on storage.objects;
-create policy "photos_public_read" on storage.objects
-  for select using (bucket_id = 'photos');
+drop policy if exists "photos_read" on storage.objects;
+create policy "photos_read" on storage.objects
+  for select using (bucket_id = 'photos' and public.can_read_photo(name));
 
 drop policy if exists "photos_auth_insert" on storage.objects;
 create policy "photos_auth_insert" on storage.objects

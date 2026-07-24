@@ -10,6 +10,7 @@ export interface SaveStoryInput {
   tone: StoryTone;
   layout: StoryLayout;
   isPublic: boolean;
+  flagged?: boolean;
   photos: { image_url: string; caption: string }[];
 }
 
@@ -38,7 +39,9 @@ export async function saveStory(
       narrative: input.narrative.trim(),
       tone: input.tone,
       layout: input.layout,
-      is_public: input.isPublic,
+      is_flagged: input.flagged ?? false,
+      // 부적절 콘텐츠로 표시되면 공개 불가
+      is_public: input.isPublic && !input.flagged,
     })
     .select("id")
     .single();
@@ -80,6 +83,19 @@ export async function toggleVisibility(
   } = await supabase.auth.getUser();
   if (!user) return { error: "로그인이 필요합니다." };
 
+  // 부적절 콘텐츠로 표시된 스토리는 공개로 전환 불가
+  if (isPublic) {
+    const { data: s } = await supabase
+      .from("stories")
+      .select("is_flagged")
+      .eq("id", storyId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (s?.is_flagged) {
+      return { error: "부적절한 콘텐츠로 표시되어 공개할 수 없습니다." };
+    }
+  }
+
   const { error } = await supabase
     .from("stories")
     .update({ is_public: isPublic })
@@ -120,7 +136,7 @@ export async function deleteStory(
   // 2) 스토리지 파일 정리 (실패해도 삭제는 진행 — best-effort)
   const photos = (story?.story_photos ?? []) as { image_url: string }[];
   const paths = photos
-    .map((p) => extractStoragePath(p.image_url))
+    .map((p) => extractStoragePath(p.image_url) ?? p.image_url)
     .filter((p): p is string => Boolean(p));
   if (paths.length > 0) {
     await supabase.storage.from("photos").remove(paths);

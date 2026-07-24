@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Plus, BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { withSignedPhotos } from "@/lib/storage";
 import { StoryCard } from "@/components/story-card";
 import { Button } from "@/components/ui/button";
 import { type StoryWithPhotos } from "@/lib/types";
@@ -19,7 +20,10 @@ export default async function DashboardPage() {
     .eq("user_id", user!.id)
     .order("created_at", { ascending: false });
 
-  const stories = (data ?? []) as StoryWithPhotos[];
+  const stories = await withSignedPhotos(
+    supabase,
+    (data ?? []) as StoryWithPhotos[],
+  );
 
   return (
     <div className="container py-10">

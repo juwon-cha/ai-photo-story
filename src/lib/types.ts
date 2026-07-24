@@ -28,6 +28,7 @@ export interface Story {
   layout: StoryLayout;
   tone: StoryTone;
   is_public: boolean;
+  is_flagged: boolean;
   view_count: number;
   created_at: string;
 }

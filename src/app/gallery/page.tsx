@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Images, Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { withSignedPhotos } from "@/lib/storage";
 import { StoryCard } from "@/components/story-card";
 import { Button } from "@/components/ui/button";
 import { type StoryWithPhotos } from "@/lib/types";
@@ -14,10 +15,14 @@ export default async function GalleryPage() {
     .from("stories")
     .select("*, story_photos(*)")
     .eq("is_public", true)
+    .eq("is_flagged", false)
     .order("created_at", { ascending: false })
     .limit(30);
 
-  const stories = (data ?? []) as StoryWithPhotos[];
+  const stories = await withSignedPhotos(
+    supabase,
+    (data ?? []) as StoryWithPhotos[],
+  );
 
   return (
     <div className="container py-10">

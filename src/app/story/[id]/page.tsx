@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { withSignedPhotos } from "@/lib/storage";
 import { StoryView } from "@/components/story-view";
 import { StoryOwnerActions } from "@/components/story-owner-actions";
 import { type StoryWithPhotos } from "@/lib/types";
@@ -33,12 +34,14 @@ export default async function StoryDetailPage({
     notFound();
   }
 
+  const [signedStory] = await withSignedPhotos(supabase, [story]);
+
   return (
     <div>
       <div className="container max-w-4xl pt-8">
         <StoryOwnerActions storyId={story.id} initialPublic={story.is_public} />
       </div>
-      <StoryView story={story} />
+      <StoryView story={signedStory} />
     </div>
   );
 }

@@ -91,7 +91,8 @@ export function CreateStoryForm() {
   const [error, setError] = useState<string | null>(null);
 
   // AI 생성 결과 (편집 가능)
-  const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
+  const [uploadedPaths, setUploadedPaths] = useState<string[]>([]);
+  const [flagged, setFlagged] = useState(false);
   const [title, setTitle] = useState("");
   const [narrative, setNarrative] = useState("");
   const [captions, setCaptions] = useState<string[]>([]);
@@ -138,7 +139,7 @@ export function CreateStoryForm() {
       if (!user) throw new Error("로그인이 필요합니다. 다시 로그인해 주세요.");
 
       // 1) 스토리지 업로드 (업로드 전 리사이즈로 용량·비용 절감)
-      const urls: string[] = [];
+      const paths: string[] = [];
       for (const { file } of photos) {
         let body: Blob = file;
         let ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -159,16 +160,15 @@ export function CreateStoryForm() {
             contentType,
           });
         if (upErr) throw new Error("사진 업로드 실패: " + upErr.message);
-        const { data } = supabase.storage.from("photos").getPublicUrl(path);
-        urls.push(data.publicUrl);
+        paths.push(path); // 비공개 버킷 → public URL 대신 경로 저장
       }
-      setUploadedUrls(urls);
+      setUploadedPaths(paths);
 
-      // 2) AI 생성 요청 (URL 만 전송)
+      // 2) AI 생성 요청 (비공개 버킷 → 경로만 전송, 서버가 다운로드)
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrls: urls, tone }),
+        body: JSON.stringify({ imagePaths: paths, tone }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "AI 생성에 실패했습니다.");
@@ -176,8 +176,10 @@ export function CreateStoryForm() {
       setTitle(json.title);
       setNarrative(json.narrative);
       setCaptions(
-        Array.isArray(json.captions) ? json.captions : urls.map(() => ""),
+        Array.isArray(json.captions) ? json.captions : paths.map(() => ""),
       );
+      setFlagged(json.flagged === true);
+      if (json.flagged === true) setIsPublic(false);
       setPhase("review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -195,8 +197,9 @@ export function CreateStoryForm() {
         tone,
         layout,
         isPublic,
-        photos: uploadedUrls.map((url, i) => ({
-          image_url: url,
+        flagged,
+        photos: uploadedPaths.map((path, i) => ({
+          image_url: path,
           caption: captions[i] ?? "",
         })),
       });
@@ -363,12 +366,12 @@ export function CreateStoryForm() {
 
           <div className="space-y-3">
             <Label>사진별 캡션</Label>
-            {uploadedUrls.map((url, i) => (
-              <Card key={url}>
+            {uploadedPaths.map((path, i) => (
+              <Card key={path}>
                 <CardContent className="flex gap-3 p-3">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={url}
+                    src={photos[i]?.preview}
                     alt={`사진 ${i + 1}`}
                     className="h-20 w-20 shrink-0 rounded-md object-cover"
                   />
@@ -411,11 +414,22 @@ export function CreateStoryForm() {
             </div>
           </div>
 
+          {flagged && (
+            <p className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              이 사진들은 공개 갤러리에 부적절할 수 있어, 공개로 전환할 수
+              없어요. 비공개로만 저장됩니다.
+            </p>
+          )}
+
           {/* 공개 여부 */}
           <button
             type="button"
-            onClick={() => setIsPublic((v) => !v)}
-            className="flex w-full items-center justify-between rounded-lg border p-4 text-left transition hover:border-primary/50"
+            disabled={flagged}
+            onClick={() => {
+              if (flagged) return;
+              setIsPublic((v) => !v);
+            }}
+            className="flex w-full items-center justify-between rounded-lg border p-4 text-left transition hover:border-primary/50 disabled:opacity-60"
           >
             <div className="flex items-center gap-3">
               {isPublic ? (

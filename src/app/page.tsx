@@ -3,19 +3,23 @@ import { Camera, Sparkles, Share2, Images, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
+import { withSignedPhotos } from "@/lib/storage";
 import { type StoryWithPhotos } from "@/lib/types";
 
 export default async function HomePage() {
   const supabase = await createClient();
 
   // 랜딩에서 공개 스토리 몇 개를 미리보여 준다 (있으면).
-  const { data: featured } = await supabase
+  const { data: featuredRaw } = await supabase
     .from("stories")
     .select("*, story_photos(*)")
     .eq("is_public", true)
+    .eq("is_flagged", false)
     .order("created_at", { ascending: false })
     .limit(3)
     .returns<StoryWithPhotos[]>();
+
+  const featured = await withSignedPhotos(supabase, featuredRaw ?? []);
 
   return (
     <div>
