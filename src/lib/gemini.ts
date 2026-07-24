@@ -3,13 +3,15 @@ import { TONE_LABELS, type StoryTone } from "@/lib/types";
 
 /**
  * 사용할 비전+텍스트 모델.
- * 무료 티어에서 gemini-2.0-flash 는 429(quota)가 자주 나므로 기본값을 2.5-flash 로 둔다.
- * 환경변수 GEMINI_MODEL 로 코드 수정 없이 교체 가능 (예: gemini-1.5-flash).
+ * 구글이 모델을 자주 교체/폐기한다(2.0-flash=무료 429, 2.5-flash=신규 사용자 404).
+ * 특정 버전에 묶이지 않도록, 항상 최신 flash 를 가리키는 별칭 gemini-flash-latest 를 기본값으로 둔다.
+ * 환경변수 GEMINI_MODEL 로 코드 수정 없이 교체 가능 (예: gemini-3.5-flash-lite).
  */
-const MODEL_ID = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+const MODEL_ID = process.env.GEMINI_MODEL?.trim() || "gemini-flash-latest";
 
 function getModel() {
-  const key = process.env.GEMINI_API_KEY;
+  // 환경변수에 실수로 붙은 앞뒤 공백/줄바꿈을 제거 (키 무효화의 흔한 원인)
+  const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) {
     throw new Error("GEMINI_API_KEY 환경변수가 설정되지 않았습니다.");
   }
@@ -85,6 +87,12 @@ export async function generateStory(
     const msg = err instanceof Error ? err.message : String(err);
     // 진짜 원인 파악용: 서버 로그(로컬 터미널 / Vercel Logs)에 원본 오류를 남긴다.
     console.error(`[Gemini] 모델=${MODEL_ID} 원본 오류:`, msg);
+    // API 키가 유효하지 않은 경우 (환경변수 값 문제) — 명확히 안내
+    if (/api[_ ]?key[_ ]?not[_ ]?valid|api_key_invalid|invalid api key/i.test(msg)) {
+      throw new Error(
+        "AI API 키가 유효하지 않습니다. 배포 환경(Vercel)의 GEMINI_API_KEY 값을 확인해 주세요.",
+      );
+    }
     // 무료 티어 한도 초과 시 429/quota 관련 메시지가 온다.
     if (/429|quota|rate limit|resource_exhausted/i.test(msg)) {
       throw new RateLimitError();

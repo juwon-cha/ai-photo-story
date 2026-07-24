@@ -2,10 +2,11 @@
 
 > 사진 몇 장을 올리면 **AI가 캡션과 짧은 이야기를 지어** 예쁜 앨범으로 만들어 주고, 공유 링크로 남기고, 공개 갤러리에서 함께 즐기는 서비스.
 
-**라이브 데모:** _(배포 후 Vercel URL 을 여기에 넣으세요 — 예: https://ai-photo-story.vercel.app)_
+**🔗 라이브 데모:** https://ai-photo-story.vercel.app
+**💻 소스 코드:** https://github.com/juwon-cha/ai-photo-story
 
-<!-- 배포 후 대표 화면 스크린샷/GIF 를 아래에 추가하세요 -->
-<!-- ![AI Photo Story 데모](docs/demo.gif) -->
+<!-- 대표 화면 스크린샷/GIF 를 아래에 추가하면 완성도가 올라갑니다 -->
+<!-- ![AI Photo Story 데모](docs/screenshot.png) -->
 
 ---
 
@@ -30,7 +31,7 @@
 | 프론트엔드 | **Next.js (App Router) + TypeScript** | 서버/클라이언트 컴포넌트를 나눠 인증·DB 접근을 서버에서 안전하게 처리. 한 프레임워크로 풀스택 구현 → 바이브코딩 속도 최적 |
 | 스타일 | **Tailwind CSS + shadcn/ui** | 유틸리티 클래스 + 복사해 쓰는 컴포넌트로 디자인 시스템을 빠르게 구축 |
 | 백엔드/DB/인증/스토리지 | **Supabase** | Postgres + Auth + Storage + RLS 를 한 번에. 별도 서버 없이 보안 규칙을 DB 레벨에서 선언 |
-| AI | **Google Gemini (`gemini-2.0-flash`)** | 카드 등록 없이 쓸 수 있는 **무료 티어**의 비전+텍스트 모델. 공식 SDK(`@google/generative-ai`) 사용 |
+| AI | **Google Gemini (`gemini-flash-latest`)** | 카드 등록 없이 쓸 수 있는 **무료 티어**의 비전+텍스트 모델. 공식 SDK(`@google/generative-ai`) 사용. 모델 폐기에 대비해 최신 flash 별칭을 기본값으로, `GEMINI_MODEL` 환경변수로 교체 가능 |
 | 배포 | **Vercel** | Next.js 최적화 배포, GitHub 연동 시 push 만으로 자동 배포 |
 
 ---
@@ -88,6 +89,7 @@ src/
 │  └─ utils.ts
 └─ middleware.ts               # 세션 갱신 + 보호 경로 가드
 supabase/schema.sql            # 테이블 · RLS · 스토리지 정책 · 트리거
+docs/코드해설.md               # 전체 파일 코드 해설 문서
 ```
 
 ---
@@ -121,7 +123,7 @@ npm run dev
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 프로젝트 URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon public key |
 | `GEMINI_API_KEY` | Google AI Studio 에서 발급한 키 (**서버 전용**) |
-| `GEMINI_MODEL` | (선택) 사용할 Gemini 모델. 비우면 `gemini-2.5-flash` |
+| `GEMINI_MODEL` | (선택) 사용할 Gemini 모델. 비우면 `gemini-flash-latest` |
 | `NEXT_PUBLIC_SITE_URL` | 소셜 공유 미리보기(OG) 기준 주소. 로컬은 `http://localhost:3000`, 배포 시 **Vercel 환경변수**에 실제 도메인 |
 
 ---
@@ -140,6 +142,9 @@ npm run dev
 **3) 겪은 문제와 해결.**
 - *이미지 전송 방식* — 처음엔 base64를 API 본문에 실었지만, 배포 환경(Vercel)의 본문 크기 제한에 걸릴 수 있어 **"스토리지에 먼저 업로드 → URL만 서버로 전송 → 서버가 다운로드"** 구조로 바꿨습니다. 덕분에 키 노출도 막고 SSRF 방지 검사도 넣을 수 있었습니다.
 - *AI 응답 파싱* — 자유 서술형 응답은 파싱이 불안정해, `responseMimeType: application/json` + 명시적 JSON 스키마 프롬프트로 **구조화된 출력**을 받도록 했습니다. 사진 수와 캡션 수가 어긋나는 경우도 보정 로직으로 방어했습니다.
+- *모델 교체 — 움직이는 표적 대응* — 배포 후 AI 생성이 실패. `gemini-2.0-flash`는 무료 티어에서 **429(quota)**, 대안으로 바꾼 `gemini-2.5-flash`는 신규 사용자에게 **404(폐기)**로 막혔습니다. 구글이 모델을 자주 교체한다는 걸 파악하고, 특정 버전에 묶이지 않도록 **항상 최신 flash 를 가리키는 `gemini-flash-latest` 별칭**을 기본값으로 두고 `GEMINI_MODEL` 환경변수로 즉시 교체 가능하게 설계했습니다. 또 구글 원본 오류를 서버 로그로 남겨 원인 진단을 쉽게 만들었습니다.
+- *의존성 취약점* — `npm audit`이 Next 내부에 묶인 낡은 `postcss`/`sharp`를 high로 표시. `npm audit fix --force`는 Next를 9.x로 다운그레이드(전체 붕괴)하려 해서 쓰지 않고, **`overrides`로 그 두 패키지만 패치 버전으로 고정**해 `0 vulnerabilities`로 만들었습니다.
+- *서버/클라이언트 경계* — 빌드 시 `createContext` 오류. App Router에서 상호작용 UI는 `"use client"`가 필요하다는 원리를 이해하고 경계를 바로잡았습니다.
 - *실패를 조용히 삼키지 않기* — 라이브 서비스 운영에서 배운 원칙대로, rate limit(429)·업로드 실패·파싱 실패를 각각 **사용자에게 명확한 한국어 메시지**로 안내하고 재시도할 수 있게 했습니다.
 
 **결과적으로** AI는 "빠른 초안 생성기"였고, 사람은 "아키텍처 결정·보안 검증·엣지 케이스 방어"를 담당했습니다. 이 역할 분담이 바이브코딩의 핵심이라고 느꼈습니다.
