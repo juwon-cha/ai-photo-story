@@ -35,6 +35,49 @@ interface SelectedPhoto {
 }
 
 const MAX_PHOTOS = 8;
+const MAX_DIMENSION = 1600; // 리사이즈 최대 변 길이(px)
+const JPEG_QUALITY = 0.85;
+
+/**
+ * 업로드 전 이미지를 최대 1600px JPEG 로 리사이즈/압축.
+ * 스토리지 용량과 Gemini 토큰(=비용)을 함께 줄인다.
+ * 변환 실패 시 호출부에서 원본을 그대로 사용하도록 reject.
+ */
+function resizeImage(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new window.Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(
+        1,
+        MAX_DIMENSION / Math.max(img.width, img.height),
+      );
+      const width = Math.round(img.width * scale);
+      const height = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("canvas 미지원"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) =>
+          blob ? resolve(blob) : reject(new Error("이미지 변환 실패")),
+        "image/jpeg",
+        JPEG_QUALITY,
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("이미지 로드 실패"));
+    };
+    img.src = url;
+  });
+}
 
 export function CreateStoryForm() {
   const router = useRouter();
@@ -94,14 +137,27 @@ export function CreateStoryForm() {
       } = await supabase.auth.getUser();
       if (!user) throw new Error("로그인이 필요합니다. 다시 로그인해 주세요.");
 
-      // 1) 스토리지 업로드
+      // 1) 스토리지 업로드 (업로드 전 리사이즈로 용량·비용 절감)
       const urls: string[] = [];
       for (const { file } of photos) {
-        const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        let body: Blob = file;
+        let ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        let contentType = file.type || "image/jpeg";
+        try {
+          body = await resizeImage(file); // 최대 1600px JPEG 로 압축
+          ext = "jpg";
+          contentType = "image/jpeg";
+        } catch {
+          // 리사이즈 실패 시 원본을 그대로 업로드
+        }
         const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
         const { error: upErr } = await supabase.storage
           .from("photos")
-          .upload(path, file, { cacheControl: "3600", upsert: false });
+          .upload(path, body, {
+            cacheControl: "3600",
+            upsert: false,
+            contentType,
+          });
         if (upErr) throw new Error("사진 업로드 실패: " + upErr.message);
         const { data } = supabase.storage.from("photos").getPublicUrl(path);
         urls.push(data.publicUrl);

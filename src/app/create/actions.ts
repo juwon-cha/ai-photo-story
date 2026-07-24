@@ -92,7 +92,14 @@ export async function toggleVisibility(
   return {};
 }
 
-/** 스토리 삭제 (본인만) */
+/** public URL 에서 스토리지 내부 경로(userId/uuid.ext)를 추출 */
+function extractStoragePath(publicUrl: string): string | null {
+  const marker = "/storage/v1/object/public/photos/";
+  const idx = publicUrl.indexOf(marker);
+  return idx === -1 ? null : publicUrl.slice(idx + marker.length);
+}
+
+/** 스토리 삭제 (본인만) — 스토리지 이미지 파일까지 함께 정리 */
 export async function deleteStory(
   storyId: string,
 ): Promise<{ error?: string }> {
@@ -102,6 +109,24 @@ export async function deleteStory(
   } = await supabase.auth.getUser();
   if (!user) return { error: "로그인이 필요합니다." };
 
+  // 1) 삭제 전, 이 스토리의 사진 경로 확보 (본인 소유만)
+  const { data: story } = await supabase
+    .from("stories")
+    .select("id, story_photos(image_url)")
+    .eq("id", storyId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  // 2) 스토리지 파일 정리 (실패해도 삭제는 진행 — best-effort)
+  const photos = (story?.story_photos ?? []) as { image_url: string }[];
+  const paths = photos
+    .map((p) => extractStoragePath(p.image_url))
+    .filter((p): p is string => Boolean(p));
+  if (paths.length > 0) {
+    await supabase.storage.from("photos").remove(paths);
+  }
+
+  // 3) DB 행 삭제 (story_photos 는 FK cascade 로 함께 삭제)
   const { error } = await supabase
     .from("stories")
     .delete()
@@ -110,5 +135,6 @@ export async function deleteStory(
 
   if (error) return { error: error.message };
   revalidatePath("/dashboard");
+  revalidatePath("/gallery");
   return {};
 }

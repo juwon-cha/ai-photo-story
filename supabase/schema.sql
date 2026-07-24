@@ -140,9 +140,16 @@ grant execute on function public.increment_story_view(uuid) to anon, authenticat
 -- ────────────────────────────────
 -- 5) Storage: photos 버킷 (공개 읽기 / 인증 사용자 본인 폴더에만 업로드)
 -- ────────────────────────────────
-insert into storage.buckets (id, name, public)
-values ('photos', 'photos', true)
-on conflict (id) do nothing;
+-- 파일당 10MB 제한 + 이미지 형식만 허용 (보안·비용)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'photos', 'photos', true,
+  10485760,  -- 10 MB
+  array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+)
+on conflict (id) do update
+  set file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "photos_public_read" on storage.objects;
 create policy "photos_public_read" on storage.objects
